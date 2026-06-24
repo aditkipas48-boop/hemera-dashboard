@@ -243,7 +243,6 @@
 </head>
 <body>
 
-<!-- HEADER -->
 <div class="header">
   <div class="header-left">
     <span class="logo">☕</span>
@@ -260,7 +259,6 @@
   </div>
 </div>
 
-<!-- SETUP -->
 <div class="setup" id="setup">
   <div class="setup-card">
     <h2>🔑 Hubungkan ke Notion</h2>
@@ -272,15 +270,12 @@
   </div>
 </div>
 
-<!-- MAIN DASHBOARD -->
 <div class="main" id="main">
 
-  <!-- METRICS -->
   <div class="metrics" id="metrics">
     <div class="loading"><div class="spinner"></div>Memuat data...</div>
   </div>
 
-  <!-- REORDER + EXPIRED -->
   <div class="sections">
     <div class="card" id="card-reorder">
       <div class="card-header">
@@ -298,7 +293,6 @@
     </div>
   </div>
 
-  <!-- ALL INVENTORY -->
   <div class="section-full card">
     <div class="tabs">
       <button class="tab-btn active" onclick="showTab('inventory',this)">📦 Semua Inventory</button>
@@ -317,7 +311,6 @@
     </div>
   </div>
 
-  <!-- WASTE CHARTS -->
   <div class="waste-grid">
     <div class="card">
       <div class="chart-wrap">
@@ -346,6 +339,9 @@ const DB_IDS = {
 const REFRESH_INTERVAL = 60000; // 60 detik
 let apiKey = '';
 let refreshTimer = null;
+
+// Menggunakan proxy publik untuk menghindari pemblokiran CORS oleh Notion
+const PROXY_URL = 'https://cors-anywhere.herokuapp.com/';
 
 // ─── KEY MANAGEMENT ───────────────────────────────────
 function saveKey() {
@@ -384,18 +380,19 @@ function showMain() {
   document.getElementById('main').classList.add('show');
 }
 
-// ─── NOTION API ────────────────────────────────────────
+// ─── NOTION API WITH CORS PROXY ────────────────────────
 async function notionQuery(dbId, filter = null, sorts = null) {
   const body = { page_size: 100 };
   if (filter) body.filter = filter;
   if (sorts) body.sorts = sorts;
 
-  const res = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+  const res = await fetch(`${PROXY_URL}https://api.notion.com/v1/databases/${dbId}/query`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Notion-Version': '2022-06-28',
       'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest'
     },
     body: JSON.stringify(body),
   });
@@ -405,16 +402,17 @@ async function notionQuery(dbId, filter = null, sorts = null) {
     throw new Error(err.message || `HTTP ${res.status}`);
   }
   const data = await res.json();
-  // Handle pagination
+  
   let results = data.results;
   let next = data.next_cursor;
   while (next) {
-    const r2 = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+    const r2 = await fetch(`${PROXY_URL}https://api.notion.com/v1/databases/${dbId}/query`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Notion-Version': '2022-06-28',
         'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
       },
       body: JSON.stringify({ ...body, start_cursor: next }),
     });
@@ -502,13 +500,11 @@ function renderMetrics(inv, waste) {
   const reorderCount = inv.filter(p => getProp(p, 'Status Stok') === '🔴 REORDER').length;
   const safeCount = inv.filter(p => getProp(p, 'Status Stok') === '🟢 SAFE').length;
 
-  // expired items (Sisa Hari <= 3)
   const expiring = inv.filter(p => {
     const s = getProp(p, 'Sisa Hari');
     return s != null && s <= 3 && s >= 0;
   }).length;
 
-  // total waste kerugian bulan ini
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const wasteThisMonth = waste.filter(p => {
@@ -705,11 +701,9 @@ function renderTxTable(tx) {
 
 // ─── RENDER WASTE CHARTS ──────────────────────────────
 function renderWasteCharts(waste, inv) {
-  // Build nama barang map from inv
   const invMap = {};
   inv.forEach(p => { invMap[p.id] = getProp(p,'Nama Barang') || p.id; });
 
-  // Aggregate by barang
   const byBarang = {};
   waste.forEach(p => {
     const rels = p.properties?.['Barang']?.relation || [];
@@ -735,7 +729,6 @@ function renderWasteCharts(waste, inv) {
       </div>`).join('');
   }
 
-  // Donut by alasan
   const byAlasan = {};
   waste.forEach(p => {
     const a = getProp(p,'Alasan') || 'Lainnya';
